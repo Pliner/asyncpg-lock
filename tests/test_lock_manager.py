@@ -156,6 +156,22 @@ def lock_manager(connector: PgConnector) -> asyncpg_lock.LockManager:
     )
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        -(2**63) - 1,
+        2**63,
+        (-(2**31) - 1, 0),
+        (2**31, 0),
+        (0, -(2**31) - 1),
+        (0, 2**31),
+    ],
+)
+async def test_invalid_lock_key(lock_manager: asyncpg_lock.LockManager, key) -> None:
+    with pytest.raises(ValueError, match="key must be"):
+        await lock_manager.guard(lambda: asyncio.sleep(-1), key=key)
+
+
 async def test_acquired_lock_holds(lock_manager: asyncpg_lock.LockManager, connector: PgConnector) -> None:
     tracker = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
     task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))

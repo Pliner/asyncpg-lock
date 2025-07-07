@@ -52,6 +52,13 @@ class LockManager:
         *,
         key: int | tuple[int, int],
     ) -> None:
+        if isinstance(key, int):
+            if not (-(2**63) <= key < 2**63):
+                raise ValueError("key must be a signed 64-bit integer")
+        else:
+            if not (-(2**31) <= key[0] < 2**31) or not (-(2**31) <= key[1] < 2**31):
+                raise ValueError("key must be a tuple of two signed 32-bit integers")
+
         await self.__ensure_is_connected(
             lambda connection: self.__ensure_lock_acquired(
                 connection,
