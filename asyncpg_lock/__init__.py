@@ -2,12 +2,12 @@ import collections
 import re
 import sys
 
-from .manager import ConnectFunc, LockManager, connect_func  # noqa
+from .guard import AdvisoryLockGuard, ConnectFunc, connect_func  # noqa
 
 __all__: tuple[str, ...] = (
-    # manager.py
+    # guard.py
     "ConnectFunc",
-    "LockManager",
+    "AdvisoryLockGuard",
     "connect_func",
 )
 

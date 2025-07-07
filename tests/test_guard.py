@@ -147,8 +147,8 @@ def connector(proxy: TcpProxy, pg_14: pytest_pg.PG) -> PgConnector:
 
 
 @pytest.fixture
-def lock_manager(connector: PgConnector) -> asyncpg_lock.LockManager:
-    return asyncpg_lock.LockManager(
+def guard(connector: PgConnector) -> asyncpg_lock.AdvisoryLockGuard:
+    return asyncpg_lock.AdvisoryLockGuard(
         connect=connector,
         reconnect_delay=RECONNECT_DELAY,
         after_acquire_delay=LOCK_ACQUIRE_GRACE_PERIOD,
@@ -167,14 +167,14 @@ def lock_manager(connector: PgConnector) -> asyncpg_lock.LockManager:
         (0, 2**31),
     ],
 )
-async def test_invalid_lock_key(lock_manager: asyncpg_lock.LockManager, key) -> None:
+async def test_invalid_lock_key(guard: asyncpg_lock.AdvisoryLockGuard, key) -> None:
     with pytest.raises(ValueError, match="key must be"):
-        await lock_manager.guard(lambda: asyncio.sleep(-1), key=key)
+        await guard.run(key, lambda: asyncio.sleep(-1))
 
 
-async def test_acquired_lock_holds(lock_manager: asyncpg_lock.LockManager, connector: PgConnector) -> None:
+async def test_acquired_lock_holds(guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector) -> None:
     tracker = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
-    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
     try:
         await tracker.wait_min_completed()
     finally:
@@ -184,15 +184,15 @@ async def test_acquired_lock_holds(lock_manager: asyncpg_lock.LockManager, conne
     assert not tracker.overlaps
 
 
-async def test_reacquire_lock_after_completion(lock_manager: asyncpg_lock.LockManager, connector: PgConnector) -> None:
+async def test_reacquire_lock_after_completion(guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector) -> None:
     tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
-    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
     try:
         await tracker.wait_min_completed()
     finally:
         await cancel_and_wait(task)
 
-    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
     try:
         await tracker.wait_max_completed()
     finally:
@@ -203,10 +203,10 @@ async def test_reacquire_lock_after_completion(lock_manager: asyncpg_lock.LockMa
 
 
 async def test_reacquire_lock_after_disruption(
-    lock_manager: asyncpg_lock.LockManager, connector: PgConnector, proxy: TcpProxy
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector, proxy: TcpProxy
 ) -> None:
     tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
-    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
     try:
         await tracker.wait_min_completed()
         await proxy.drop_connections()
@@ -219,12 +219,12 @@ async def test_reacquire_lock_after_disruption(
 
 
 async def test_no_overlapping_execution_for_same_keys(
-    lock_manager: asyncpg_lock.LockManager, connector: PgConnector
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector
 ) -> None:
     tracker = ExecutionTracker(min_completed_executions=16)
 
-    task_0 = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
-    task_1 = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task_0 = asyncio.create_task(guard.run(LOCK_KEY, tracker))
+    task_1 = asyncio.create_task(guard.run(LOCK_KEY, tracker))
 
     try:
         await tracker.wait_min_completed()
@@ -237,13 +237,13 @@ async def test_no_overlapping_execution_for_same_keys(
 
 
 async def test_overlapping_execution_for_different_keys(
-    lock_manager: asyncpg_lock.LockManager, connector: PgConnector
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector
 ) -> None:
     tracker_1 = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
     tracker_2 = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
 
-    task_1 = asyncio.create_task(lock_manager.guard(tracker_1, key=LOCK_KEY))
-    task_2 = asyncio.create_task(lock_manager.guard(tracker_2, key=NON_CONFLICTING_LOCK_KEY))
+    task_1 = asyncio.create_task(guard.run(LOCK_KEY, tracker_1))
+    task_2 = asyncio.create_task(guard.run(NON_CONFLICTING_LOCK_KEY, tracker_2))
     try:
         await asyncio.gather(tracker_1.wait_min_completed(), tracker_2.wait_min_completed())
         assert tracker_1.has_overlap_with(tracker_2)
@@ -257,7 +257,7 @@ async def test_overlapping_execution_for_different_keys(
 
 
 async def test_no_overlapping_execution_for_same_keys_dropped_connection(
-    lock_manager: asyncpg_lock.LockManager,
+    guard: asyncpg_lock.AdvisoryLockGuard,
     proxy: TcpProxy,
 ) -> None:
     tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
@@ -265,7 +265,7 @@ async def test_no_overlapping_execution_for_same_keys_dropped_connection(
     tasks = []
     max_tasks_count = 4
     for _ in range(max_tasks_count):
-        task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+        task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
         tasks.append(task)
 
     try:

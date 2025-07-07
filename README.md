@@ -17,18 +17,18 @@ async def worker_func() -> None:
 
 
 async def main():
-    lock_manager = asyncpg_lock.LockManager(
+    guard = asyncpg_lock.AdvisoryLockGuard(
         connect=lambda: asyncpg.connect("postgresql://localhost/db")
     )
     # worker_func will not be executed concurrently
-    lock_key = 100500
-    guard_tasks = [
-        asyncio.create_task(lock_manager.guard(worker_func, key=lock_key)),
-        asyncio.create_task(lock_manager.guard(worker_func, key=lock_key)),
-        asyncio.create_task(lock_manager.guard(worker_func, key=lock_key)),
-        asyncio.create_task(lock_manager.guard(worker_func, key=lock_key))
+    key = 100500
+    tasks = [
+        asyncio.create_task(guard.run(key, worker_func)),
+        asyncio.create_task(guard.run(key, worker_func)),
+        asyncio.create_task(guard.run(key, worker_func)),
+        asyncio.create_task(guard.run(key, worker_func))
     ]
-    await asyncio.gather(*guard_tasks)
+    await asyncio.gather(*tasks)
 
 
 asyncio.run(main())
