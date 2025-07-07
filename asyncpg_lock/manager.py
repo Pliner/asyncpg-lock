@@ -89,7 +89,7 @@ class LockManager:
                 else:
                     acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1, $2)", key[0], key[1])
             except Exception:
-                logger.debug("Exception during acquiring an advisory lock", exc_info=True)
+                logger.debug("Exception during acquiring advisory lock %s", key, exc_info=True)
                 return
 
             if acquired:
@@ -98,12 +98,12 @@ class LockManager:
             await asyncio.sleep(self.__reacquire_delay)
 
         logger.info(
-            "Lock %s is acquired, waiting for %s s",
+            "Advisory lock %s is acquired, waiting for %s s",
             key,
             self.__after_acquire_delay,
         )
         await asyncio.sleep(self.__after_acquire_delay)
-        logger.info("Lock %s is acquired, running", key)
+        logger.info("Advisory lock %s is acquired, running", key)
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -115,6 +115,4 @@ class LockManager:
                 )
                 tg.create_task(func())
         except Exception:
-            logger.debug("Exception during running a function or monitoring a connection", exc_info=True)
-
-        logger.warning("Lock %s is lost", key)
+            logger.debug("Advisory lock %s might be lost", key, exc_info=True)
