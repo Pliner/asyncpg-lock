@@ -50,15 +50,13 @@ class LockManager:
         self,
         func: Callable[[], Coroutine],
         *,
-        lock_ns: int,
-        lock_key: int,
+        key: int | tuple[int, int],
     ) -> None:
         await self.__ensure_is_connected(
             lambda connection: self.__ensure_lock_acquired(
                 connection,
                 lambda: run_forever(func),
-                lock_ns=lock_ns,
-                lock_key=lock_key,
+                key=key,
             )
         )
 
@@ -78,12 +76,7 @@ class LockManager:
             await asyncio.sleep(self.__reconnect_delay)
 
     async def __ensure_lock_acquired(
-        self,
-        connection: asyncpg.Connection,
-        func: Callable[[], Coroutine],
-        *,
-        lock_ns: int,
-        lock_key: int,
+        self, connection: asyncpg.Connection, func: Callable[[], Coroutine], *, key: int | tuple[int, int]
     ) -> None:
         while True:
             if connection.is_closed():
@@ -91,7 +84,10 @@ class LockManager:
                 return
 
             try:
-                acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1, $2)", lock_ns, lock_key)
+                if isinstance(key, int):
+                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1)", key)
+                else:
+                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1, $2)", key[0], key[1])
             except Exception:
                 logger.debug("Exception during acquiring an advisory lock", exc_info=True)
                 return
@@ -102,13 +98,12 @@ class LockManager:
             await asyncio.sleep(self.__reacquire_delay)
 
         logger.info(
-            "Lock (%s, %s) is acquired, waiting %s s grace period",
-            lock_ns,
-            lock_key,
+            "Lock %s is acquired, waiting for %s s",
+            key,
             self.__after_acquire_delay,
         )
         await asyncio.sleep(self.__after_acquire_delay)
-        logger.info("Lock (%s, %s) is acquired, running", lock_ns, lock_key)
+        logger.info("Lock %s is acquired, running", key)
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -122,4 +117,4 @@ class LockManager:
         except Exception:
             logger.debug("Exception during running a function or monitoring a connection", exc_info=True)
 
-        logger.warning("Lock (%s, %s) is lost", lock_ns, lock_key)
+        logger.warning("Lock %s is lost", key)

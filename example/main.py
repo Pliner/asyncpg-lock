@@ -17,20 +17,19 @@ async def process(id: int) -> None:
 
 async def main():
     lock_manager = asyncpg_lock.LockManager(connect=lambda: asyncpg.connect(database="postgres"))
+    lock_key = (42, 42)
     process_one_id = random.randint(0, 100500)
     process_one = asyncio.create_task(
         lock_manager.guard(
             lambda: process(process_one_id),
-            lock_ns=42,
-            lock_key=42,
+            key=lock_key,
         )
     )
     process_two_id = random.randint(0, 100500)
     process_two = asyncio.create_task(
         lock_manager.guard(
             lambda: process(process_two_id),
-            lock_ns=42,
-            lock_key=42,
+            key=lock_key,
         )
     )
     await asyncio.gather(process_one, process_two)

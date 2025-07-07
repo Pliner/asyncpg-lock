@@ -19,9 +19,8 @@ LOCK_ACQUIRE_GRACE_PERIOD = 0.75
 LOCK_ACQUIRE_RETRY_INTERVAL = 0.5
 PER_ATTEMPT_DELAY = 0.1
 
-LOCK_NS = random.randint(0, 2**31 - 1)
-LOCK_KEY = random.randint(0, 2**31 - 1)
-NON_CONFLICTING_LOCK_KEY = random.randint(-(2**31), -1)
+LOCK_KEY = random.randint(0, 2**63 - 1)
+NON_CONFLICTING_LOCK_KEY = random.randint(-(2**63), -1)
 
 
 async def cancel_and_wait(future: asyncio.Future[None]) -> None:
@@ -159,7 +158,7 @@ def lock_manager(connector: PgConnector) -> asyncpg_lock.LockManager:
 
 async def test_acquired_lock_holds(lock_manager: asyncpg_lock.LockManager, connector: PgConnector) -> None:
     tracker = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
-    task = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
     try:
         await tracker.wait_min_completed()
     finally:
@@ -171,13 +170,13 @@ async def test_acquired_lock_holds(lock_manager: asyncpg_lock.LockManager, conne
 
 async def test_reacquire_lock_after_completion(lock_manager: asyncpg_lock.LockManager, connector: PgConnector) -> None:
     tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
-    task = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
     try:
         await tracker.wait_min_completed()
     finally:
         await cancel_and_wait(task)
 
-    task = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
     try:
         await tracker.wait_max_completed()
     finally:
@@ -191,7 +190,7 @@ async def test_reacquire_lock_after_disruption(
     lock_manager: asyncpg_lock.LockManager, connector: PgConnector, proxy: TcpProxy
 ) -> None:
     tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
-    task = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+    task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
     try:
         await tracker.wait_min_completed()
         await proxy.drop_connections()
@@ -208,8 +207,8 @@ async def test_no_overlapping_execution_for_same_keys(
 ) -> None:
     tracker = ExecutionTracker(min_completed_executions=16)
 
-    task_0 = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
-    task_1 = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+    task_0 = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
+    task_1 = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
 
     try:
         await tracker.wait_min_completed()
@@ -227,8 +226,8 @@ async def test_overlapping_execution_for_different_keys(
     tracker_1 = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
     tracker_2 = ExecutionTracker(min_completed_executions=int(LOCK_ACQUIRE_GRACE_PERIOD // PER_ATTEMPT_DELAY) * 2)
 
-    task_1 = asyncio.create_task(lock_manager.guard(tracker_1, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
-    task_2 = asyncio.create_task(lock_manager.guard(tracker_2, lock_ns=LOCK_NS, lock_key=NON_CONFLICTING_LOCK_KEY))
+    task_1 = asyncio.create_task(lock_manager.guard(tracker_1, key=LOCK_KEY))
+    task_2 = asyncio.create_task(lock_manager.guard(tracker_2, key=NON_CONFLICTING_LOCK_KEY))
     try:
         await asyncio.gather(tracker_1.wait_min_completed(), tracker_2.wait_min_completed())
         assert tracker_1.has_overlap_with(tracker_2)
@@ -250,7 +249,7 @@ async def test_no_overlapping_execution_for_same_keys_dropped_connection(
     tasks = []
     max_tasks_count = 4
     for _ in range(max_tasks_count):
-        task = asyncio.create_task(lock_manager.guard(tracker, lock_ns=LOCK_NS, lock_key=LOCK_KEY))
+        task = asyncio.create_task(lock_manager.guard(tracker, key=LOCK_KEY))
         tasks.append(task)
 
     try:
