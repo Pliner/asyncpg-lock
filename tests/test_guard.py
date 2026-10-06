@@ -218,6 +218,22 @@ async def test_reacquire_lock_after_disruption(
     assert not tracker.overlaps
 
 
+async def test_reacquire_lock_after_silent_disruption(
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector, proxy: TcpProxy
+) -> None:
+    tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
+    try:
+        await tracker.wait_min_completed()
+        await proxy.freeze_connections()
+        await tracker.wait_max_completed()
+    finally:
+        await cancel_and_wait(task)
+
+    assert connector.total_open_connections == 2
+    assert not tracker.overlaps
+
+
 async def test_no_overlapping_execution_for_same_keys(
     guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector
 ) -> None:
