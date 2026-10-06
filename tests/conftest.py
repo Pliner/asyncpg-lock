@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import socket
-from typing import AsyncIterable, Awaitable, Callable, Optional
+from collections.abc import AsyncIterable, Awaitable, Callable
 
 import pytest
 
@@ -10,7 +10,7 @@ logging.basicConfig()
 
 @pytest.fixture(scope="session")
 def unused_port() -> Callable[[], int]:
-    def f():
+    def f() -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
@@ -64,7 +64,7 @@ class TcpProxy:
             self.frozen_connections.add(server_writer)
             server_writer.close()
 
-    async def _pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def _pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while not reader.at_eof():
                 bytes_read = await reader.read(TcpProxy.MAX_BYTES)
@@ -82,7 +82,7 @@ class TcpProxy:
         self,
         client_reader: asyncio.StreamReader,
         client_writer: asyncio.StreamWriter,
-    ):
+    ) -> None:
         server_reader, server_writer = await asyncio.open_connection(host=self.dst_host, port=self.dst_port)
 
         self.connections.add(server_writer)
@@ -99,7 +99,7 @@ class TcpProxy:
 
 @pytest.fixture
 async def tcp_proxy() -> AsyncIterable[Callable[[int, int], Awaitable[TcpProxy]]]:
-    proxy: Optional[TcpProxy] = None
+    proxy: TcpProxy | None = None
 
     async def go(src_port: int, dst_port: int) -> TcpProxy:
         nonlocal proxy

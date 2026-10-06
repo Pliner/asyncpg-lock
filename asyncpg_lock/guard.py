@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import asyncpg
 
@@ -19,10 +20,10 @@ def connect_func(*args: Any, **kwargs: Any) -> ConnectFunc:
 
 class AdvisoryLockGuard:
     __slots__ = (
-        "__connect",
-        "__reconnect_delay",
         "__after_acquire_delay",
+        "__connect",
         "__reacquire_delay",
+        "__reconnect_delay",
         "__tasks",
     )
 
@@ -121,7 +122,7 @@ class AdvisoryLockGuard:
                 raise Exception(f"Lock {key} might be lost: connection is closed")
             try:
                 await connection.execute("SELECT 1", timeout=per_attempt_keep_alive_budget)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise Exception(f"Lock {key} might be lost: keep-alive query timed out")
             except Exception:
                 raise Exception(f"Lock {key} might be lost: keep-alive query failed")
