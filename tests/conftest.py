@@ -31,6 +31,8 @@ class TcpProxy:
         self.dst_host = "127.0.0.1"
         self.dst_port = dst_port
         self.connections = set()
+        self.links = set()
+        self.frozen_connections = set()
 
     async def start(self) -> None:
         await asyncio.start_server(
@@ -40,23 +42,41 @@ class TcpProxy:
         )
 
     async def drop_connections(self) -> None:
+        self.links.clear()
+        self.connections.update(self.frozen_connections)
+        self.frozen_connections.clear()
         while self.connections:
             writer = self.connections.pop()
             writer.close()
             if hasattr(writer, "wait_closed"):
                 await writer.wait_closed()
 
-    @staticmethod
-    async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def freeze_connections(self) -> None:
+        """
+        Simulates a silently dead network path: the server side is closed,
+        while the client side stays open and never receives anything.
+        """
+        while self.links:
+            client_writer, server_writer = self.links.pop()
+            self.connections.discard(client_writer)
+            self.connections.discard(server_writer)
+            self.frozen_connections.add(client_writer)
+            self.frozen_connections.add(server_writer)
+            server_writer.close()
+
+    async def _pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
             while not reader.at_eof():
                 bytes_read = await reader.read(TcpProxy.MAX_BYTES)
+                if writer in self.frozen_connections:
+                    continue
                 writer.write(bytes_read)
                 await writer.drain()
         finally:
-            writer.close()
-            if hasattr(writer, "wait_closed"):
-                await writer.wait_closed()
+            if writer not in self.frozen_connections:
+                writer.close()
+                if hasattr(writer, "wait_closed"):
+                    await writer.wait_closed()
 
     async def _handle_client(
         self,
@@ -67,6 +87,7 @@ class TcpProxy:
 
         self.connections.add(server_writer)
         self.connections.add(client_writer)
+        self.links.add((client_writer, server_writer))
 
         try:
             async with asyncio.TaskGroup() as tg:

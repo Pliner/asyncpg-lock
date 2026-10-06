@@ -23,6 +23,7 @@ class AdvisoryLockGuard:
         "__reconnect_delay",
         "__after_acquire_delay",
         "__reacquire_delay",
+        "__tasks",
     )
 
     def __init__(
@@ -44,6 +45,7 @@ class AdvisoryLockGuard:
         self.__after_acquire_delay = after_acquire_delay
         self.__reacquire_delay = reacquire_delay
         self.__connect = connect
+        self.__tasks: set[asyncio.Task[None]] = set()
 
     async def run(
         self,
@@ -70,7 +72,9 @@ class AdvisoryLockGuard:
                 try:
                     await func(connection)
                 finally:
-                    await asyncio.shield(connection.close())
+                    close_task = asyncio.create_task(connection.close())
+                    close_task.add_done_callback(self.__tasks.discard)
+                    self.__tasks.add(close_task)
             except Exception:
                 if failed_attempts > 0:
                     logger.exception("Connection closed or not established")
