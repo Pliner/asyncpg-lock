@@ -1,6 +1,7 @@
 ## unreleased
 
 * Wait for a connection closure with `close_timeout`, require asyncpg 0.32.0
+* Limit lock acquisition attempt time
 
 
 ## v0.0.3 (2026-10-06)
