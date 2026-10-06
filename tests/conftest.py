@@ -76,7 +76,7 @@ class TcpProxy:
             if writer not in self.frozen_connections:
                 writer.close()
                 if hasattr(writer, "wait_closed"):
-                    await writer.wait_closed()
+                    await asyncio.shield(writer.wait_closed())
 
     async def _handle_client(
         self,
