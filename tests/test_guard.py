@@ -3,7 +3,7 @@ import contextlib
 import dataclasses
 import random
 import time
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 import asyncpg
 import pytest
@@ -167,7 +167,7 @@ def guard(connector: PgConnector) -> asyncpg_lock.AdvisoryLockGuard:
         (0, 2**31),
     ],
 )
-async def test_invalid_lock_key(guard: asyncpg_lock.AdvisoryLockGuard, key) -> None:
+async def test_invalid_lock_key(guard: asyncpg_lock.AdvisoryLockGuard, key: int | tuple[int, int]) -> None:
     with pytest.raises(ValueError, match="key must be"):
         await guard.run(key, lambda: asyncio.sleep(-1))
 
