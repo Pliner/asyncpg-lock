@@ -18,6 +18,7 @@ RECONNECT_DELAY = 0.1
 LOCK_ACQUIRE_GRACE_PERIOD = 0.75
 LOCK_ACQUIRE_RETRY_INTERVAL = 0.5
 PER_ATTEMPT_DELAY = 0.1
+LOCK_ACQUIRE_TIMEOUT = 0.25
 
 LOCK_KEY = random.randint(0, 2**63 - 1)
 NON_CONFLICTING_LOCK_KEY = random.randint(-(2**63), -1)
@@ -153,6 +154,7 @@ def guard(connector: PgConnector) -> asyncpg_lock.AdvisoryLockGuard:
         reconnect_delay=RECONNECT_DELAY,
         after_acquire_delay=LOCK_ACQUIRE_GRACE_PERIOD,
         reacquire_delay=LOCK_ACQUIRE_RETRY_INTERVAL,
+        acquire_timeout=LOCK_ACQUIRE_TIMEOUT,
     )
 
 
@@ -247,7 +249,9 @@ async def test_acquire_lock_after_silent_disruption_while_waiting(
         await proxy.freeze_connections()
         await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL * 2)
         await holder.close()
-        async with asyncio.timeout((LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_GRACE_PERIOD + PER_ATTEMPT_DELAY) * 2):
+        async with asyncio.timeout(
+            (LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_TIMEOUT + LOCK_ACQUIRE_GRACE_PERIOD + PER_ATTEMPT_DELAY) * 2
+        ):
             await tracker.min_completed_executions_event.wait()
     finally:
         await cancel_and_wait(task)
