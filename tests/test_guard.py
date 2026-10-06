@@ -234,6 +234,29 @@ async def test_reacquire_lock_after_silent_disruption(
     assert not tracker.overlaps
 
 
+async def test_acquire_lock_after_silent_disruption_while_waiting(
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector, proxy: TcpProxy, pg_14: pytest_pg.PG
+) -> None:
+    holder = await asyncpg.connect(host=pg_14.host, port=pg_14.port, user=pg_14.user, database=pg_14.database)
+    await holder.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+
+    tracker = ExecutionTracker()
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
+    try:
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL)
+        await proxy.freeze_connections()
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL * 2)
+        await holder.close()
+        async with asyncio.timeout((LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_GRACE_PERIOD + PER_ATTEMPT_DELAY) * 2):
+            await tracker.min_completed_executions_event.wait()
+    finally:
+        await cancel_and_wait(task)
+        await holder.close()
+
+    assert connector.total_open_connections == 2
+    assert not tracker.overlaps
+
+
 async def test_no_overlapping_execution_for_same_keys(
     guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector
 ) -> None:

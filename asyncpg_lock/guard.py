@@ -102,12 +102,17 @@ class AdvisoryLockGuard:
             logger.info("Lock %s might be lost", key)
 
     async def __acquire_lock(self, connection: asyncpg.Connection, key: int | tuple[int, int]) -> None:
+        per_attempt_acquire_budget = self.__after_acquire_delay / 3
         while True:
             try:
                 if isinstance(key, int):
-                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1)", key)
+                    acquired = await connection.fetchval(
+                        "SELECT pg_try_advisory_lock($1)", key, timeout=per_attempt_acquire_budget
+                    )
                 else:
-                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1, $2)", key[0], key[1])
+                    acquired = await connection.fetchval(
+                        "SELECT pg_try_advisory_lock($1, $2)", key[0], key[1], timeout=per_attempt_acquire_budget
+                    )
             except Exception:
                 raise Exception(f"Lock {key} not acquired")
             if acquired:
