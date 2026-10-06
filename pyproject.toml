@@ -30,11 +30,11 @@ Homepage = "https://github.com/Pliner/asyncpg-lock"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.0.2",
+    "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-pg==0.0.30",
-    "ruff==0.14.10",
-    "pyright==1.1.407",
+    "ruff==0.16.10",
+    "pyright==1.1.414",
     "asyncpg==0.31.0",
 ]
 
