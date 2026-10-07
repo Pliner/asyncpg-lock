@@ -253,6 +253,7 @@ async def test_acquire_lock_after_silent_disruption_while_waiting(
             (LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_TIMEOUT + LOCK_ACQUIRE_GRACE_PERIOD + PER_ATTEMPT_DELAY) * 2
         ):
             await tracker.min_completed_executions_event.wait()
+        assert not task.done()
     finally:
         await cancel_and_wait(task)
         await holder.close()
