@@ -118,6 +118,7 @@ class AdvisoryLockGuard:
                         "SELECT pg_try_advisory_lock($1, $2)", key[0], key[1], timeout=self.__acquire_timeout
                     )
             except Exception:
+                logger.warning("Failed to acquire lock %s", key, exc_info=True)
                 raise Exception(f"Lock {key} not acquired")
             if acquired:
                 return
