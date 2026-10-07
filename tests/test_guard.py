@@ -18,6 +18,7 @@ RECONNECT_DELAY = 0.1
 LOCK_ACQUIRE_GRACE_PERIOD = 0.75
 LOCK_ACQUIRE_RETRY_INTERVAL = 0.5
 PER_ATTEMPT_DELAY = 0.1
+LOCK_ACQUIRE_TIMEOUT = 0.25
 
 LOCK_KEY = random.randint(0, 2**63 - 1)
 NON_CONFLICTING_LOCK_KEY = random.randint(-(2**63), -1)
@@ -153,6 +154,7 @@ def guard(connector: PgConnector) -> asyncpg_lock.AdvisoryLockGuard:
         reconnect_delay=RECONNECT_DELAY,
         after_acquire_delay=LOCK_ACQUIRE_GRACE_PERIOD,
         reacquire_delay=LOCK_ACQUIRE_RETRY_INTERVAL,
+        acquire_timeout=LOCK_ACQUIRE_TIMEOUT,
     )
 
 
@@ -232,6 +234,56 @@ async def test_reacquire_lock_after_silent_disruption(
 
     assert connector.total_open_connections == 2
     assert not tracker.overlaps
+
+
+async def test_acquire_lock_after_silent_disruption_while_waiting(
+    guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector, proxy: TcpProxy, pg_14: pytest_pg.PG
+) -> None:
+    holder = await asyncpg.connect(host=pg_14.host, port=pg_14.port, user=pg_14.user, database=pg_14.database)
+    await holder.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+
+    tracker = ExecutionTracker()
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
+    try:
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL)
+        await proxy.freeze_connections()
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL * 2)
+        await holder.close()
+        async with asyncio.timeout(
+            (LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_TIMEOUT + LOCK_ACQUIRE_GRACE_PERIOD + PER_ATTEMPT_DELAY) * 2
+        ):
+            await tracker.min_completed_executions_event.wait()
+        assert not task.done()
+    finally:
+        await cancel_and_wait(task)
+        await holder.close()
+
+    assert connector.total_open_connections == 2
+    assert not tracker.overlaps
+
+
+async def test_log_failed_lock_acquisition_attempt(
+    guard: asyncpg_lock.AdvisoryLockGuard, proxy: TcpProxy, pg_14: pytest_pg.PG, caplog: pytest.LogCaptureFixture
+) -> None:
+    holder = await asyncpg.connect(host=pg_14.host, port=pg_14.port, user=pg_14.user, database=pg_14.database)
+    await holder.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+
+    task = asyncio.create_task(guard.run(LOCK_KEY, ExecutionTracker()))
+    try:
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL)
+        await proxy.freeze_connections()
+        await asyncio.sleep((LOCK_ACQUIRE_RETRY_INTERVAL + LOCK_ACQUIRE_TIMEOUT) * 2)
+    finally:
+        await cancel_and_wait(task)
+        await holder.close()
+
+    assert any(
+        x.name == "asyncpg_lock"
+        and x.levelname == "WARNING"
+        and x.exc_info is not None
+        and x.exc_info[0] is TimeoutError
+        for x in caplog.records
+    )
 
 
 async def test_no_overlapping_execution_for_same_keys(

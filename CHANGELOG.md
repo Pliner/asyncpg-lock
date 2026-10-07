@@ -1,3 +1,8 @@
+## unreleased
+
+* Limit lock acquisition attempt time
+
+
 ## v0.0.3 (2026-10-06)
 
 * Use PyPI trusted publishing
