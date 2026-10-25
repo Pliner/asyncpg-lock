@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -21,10 +22,10 @@ def connect_func(*args: Any, **kwargs: Any) -> ConnectFunc:
 class AdvisoryLockGuard:
     __slots__ = (
         "__after_acquire_delay",
+        "__close_timeout",
         "__connect",
         "__reacquire_delay",
         "__reconnect_delay",
-        "__tasks",
     )
 
     def __init__(
@@ -34,6 +35,7 @@ class AdvisoryLockGuard:
         reconnect_delay: float = 5,
         reacquire_delay: float = 5,
         after_acquire_delay: float = 5,
+        close_timeout: float = 5,
     ) -> None:
         if reconnect_delay < 0:
             raise ValueError("reconnect_delay must be non-negative")
@@ -41,12 +43,14 @@ class AdvisoryLockGuard:
             raise ValueError("reacquire_delay must be positive")
         if after_acquire_delay <= 0:
             raise ValueError("after_acquire_delay must be positive")
+        if close_timeout <= 0:
+            raise ValueError("close_timeout must be positive")
 
         self.__reconnect_delay = reconnect_delay
         self.__after_acquire_delay = after_acquire_delay
         self.__reacquire_delay = reacquire_delay
+        self.__close_timeout = close_timeout
         self.__connect = connect
-        self.__tasks: set[asyncio.Task[None]] = set()
 
     async def run(
         self,
@@ -73,9 +77,8 @@ class AdvisoryLockGuard:
                 try:
                     await func(connection)
                 finally:
-                    close_task = asyncio.create_task(connection.close())
-                    close_task.add_done_callback(self.__tasks.discard)
-                    self.__tasks.add(close_task)
+                    with contextlib.suppress(Exception):
+                        await connection.close(timeout=self.__close_timeout)
             except Exception:
                 if failed_attempts > 0:
                     logger.exception("Connection closed or not established")
