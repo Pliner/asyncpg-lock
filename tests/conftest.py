@@ -33,6 +33,7 @@ class TcpProxy:
         self.connections = set()
         self.links = set()
         self.frozen_connections = set()
+        self.frozen_connections_released = asyncio.Event()
 
     async def start(self) -> None:
         await asyncio.start_server(
@@ -56,6 +57,7 @@ class TcpProxy:
         Simulates a silently dead network path: the server side is closed,
         while the client side stays open and never receives anything.
         """
+        self.frozen_connections_released.clear()
         while self.links:
             client_writer, server_writer = self.links.pop()
             self.connections.discard(client_writer)
@@ -63,6 +65,14 @@ class TcpProxy:
             self.frozen_connections.add(client_writer)
             self.frozen_connections.add(server_writer)
             server_writer.close()
+        if not self.frozen_connections:
+            self.frozen_connections_released.set()
+
+    async def wait_frozen_connections_released(self) -> None:
+        """
+        Waits until clients close all frozen connections.
+        """
+        await self.frozen_connections_released.wait()
 
     async def _pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -95,6 +105,13 @@ class TcpProxy:
                 tg.create_task(self._pipe(client_reader, server_writer))
         except Exception:
             pass
+
+        if client_writer in self.frozen_connections:
+            self.frozen_connections.discard(client_writer)
+            self.frozen_connections.discard(server_writer)
+            client_writer.close()
+            if not self.frozen_connections:
+                self.frozen_connections_released.set()
 
 
 @pytest.fixture

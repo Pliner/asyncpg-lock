@@ -18,6 +18,7 @@ RECONNECT_DELAY = 0.1
 LOCK_ACQUIRE_GRACE_PERIOD = 0.75
 LOCK_ACQUIRE_RETRY_INTERVAL = 0.5
 PER_ATTEMPT_DELAY = 0.1
+CLOSE_TIMEOUT = 0.25
 
 LOCK_KEY = random.randint(0, 2**63 - 1)
 NON_CONFLICTING_LOCK_KEY = random.randint(-(2**63), -1)
@@ -153,6 +154,7 @@ def guard(connector: PgConnector) -> asyncpg_lock.AdvisoryLockGuard:
         reconnect_delay=RECONNECT_DELAY,
         after_acquire_delay=LOCK_ACQUIRE_GRACE_PERIOD,
         reacquire_delay=LOCK_ACQUIRE_RETRY_INTERVAL,
+        close_timeout=CLOSE_TIMEOUT,
     )
 
 
@@ -232,6 +234,19 @@ async def test_reacquire_lock_after_silent_disruption(
 
     assert connector.total_open_connections == 2
     assert not tracker.overlaps
+
+
+async def test_release_silently_dead_connection(guard: asyncpg_lock.AdvisoryLockGuard, proxy: TcpProxy) -> None:
+    tracker = ExecutionTracker(min_completed_executions=8, max_completed_executions=16)
+    task = asyncio.create_task(guard.run(LOCK_KEY, tracker))
+    try:
+        await tracker.wait_min_completed()
+        await proxy.freeze_connections()
+        await tracker.wait_max_completed()
+        async with asyncio.timeout(LOCK_ACQUIRE_GRACE_PERIOD * 2):
+            await proxy.wait_frozen_connections_released()
+    finally:
+        await cancel_and_wait(task)
 
 
 async def test_no_overlapping_execution_for_same_keys(
