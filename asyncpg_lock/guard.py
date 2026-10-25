@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -76,7 +77,8 @@ class AdvisoryLockGuard:
                 try:
                     await func(connection)
                 finally:
-                    await connection.close(timeout=self.__close_timeout)
+                    with contextlib.suppress(Exception):
+                        await connection.close(timeout=self.__close_timeout)
             except Exception:
                 if failed_attempts > 0:
                     logger.exception("Connection closed or not established")

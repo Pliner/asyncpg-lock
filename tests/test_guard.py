@@ -249,6 +249,25 @@ async def test_release_silently_dead_connection(guard: asyncpg_lock.AdvisoryLock
         await cancel_and_wait(task)
 
 
+async def test_stop_on_silently_dead_connection(
+    guard: asyncpg_lock.AdvisoryLockGuard, proxy: TcpProxy, pg_14: pytest_pg.PG
+) -> None:
+    holder = await asyncpg.connect(host=pg_14.host, port=pg_14.port, user=pg_14.user, database=pg_14.database)
+    await holder.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+
+    task = asyncio.create_task(guard.run(LOCK_KEY, ExecutionTracker()))
+    try:
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL)
+        await proxy.freeze_connections()
+        await asyncio.sleep(LOCK_ACQUIRE_RETRY_INTERVAL * 2)
+        task.cancel()
+        await asyncio.wait([task], timeout=CLOSE_TIMEOUT * 4)
+        assert task.cancelled()
+    finally:
+        task.cancel()
+        await holder.close()
+
+
 async def test_no_overlapping_execution_for_same_keys(
     guard: asyncpg_lock.AdvisoryLockGuard, connector: PgConnector
 ) -> None:
