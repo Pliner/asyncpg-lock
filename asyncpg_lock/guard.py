@@ -21,6 +21,7 @@ def connect_func(*args: Any, **kwargs: Any) -> ConnectFunc:
 
 class AdvisoryLockGuard:
     __slots__ = (
+        "__acquire_timeout",
         "__after_acquire_delay",
         "__close_timeout",
         "__connect",
@@ -36,6 +37,7 @@ class AdvisoryLockGuard:
         reacquire_delay: float = 5,
         after_acquire_delay: float = 5,
         close_timeout: float = 5,
+        acquire_timeout: float = 5,
     ) -> None:
         if reconnect_delay < 0:
             raise ValueError("reconnect_delay must be non-negative")
@@ -45,11 +47,14 @@ class AdvisoryLockGuard:
             raise ValueError("after_acquire_delay must be positive")
         if close_timeout <= 0:
             raise ValueError("close_timeout must be positive")
+        if acquire_timeout <= 0:
+            raise ValueError("acquire_timeout must be positive")
 
         self.__reconnect_delay = reconnect_delay
         self.__after_acquire_delay = after_acquire_delay
         self.__reacquire_delay = reacquire_delay
         self.__close_timeout = close_timeout
+        self.__acquire_timeout = acquire_timeout
         self.__connect = connect
 
     async def run(
@@ -108,10 +113,15 @@ class AdvisoryLockGuard:
         while True:
             try:
                 if isinstance(key, int):
-                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1)", key)
+                    acquired = await connection.fetchval(
+                        "SELECT pg_try_advisory_lock($1)", key, timeout=self.__acquire_timeout
+                    )
                 else:
-                    acquired = await connection.fetchval("SELECT pg_try_advisory_lock($1, $2)", key[0], key[1])
+                    acquired = await connection.fetchval(
+                        "SELECT pg_try_advisory_lock($1, $2)", key[0], key[1], timeout=self.__acquire_timeout
+                    )
             except Exception:
+                logger.warning("Failed to acquire lock %s", key, exc_info=True)
                 raise Exception(f"Lock {key} not acquired")
             if acquired:
                 return
