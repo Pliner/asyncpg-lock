@@ -1,7 +1,8 @@
-## unreleased
+## v0.0.4 (2026-11-21)
 
 * Wait for a connection closure with `close_timeout`, require asyncpg 0.32.0
 * Limit lock acquisition attempt time
+* Add Python 3.15 to CI and package classifiers
 
 
 ## v0.0.3 (2026-10-06)
